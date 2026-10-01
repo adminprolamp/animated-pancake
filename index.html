@@ -1,167 +1,92 @@
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Lampa - Каталог фильмов и сериалов</title>
+/* lampainit.js */
+(function () {
+    'use strict';
 
-    <meta name="description" content="Приложение для просмотра каталога фильмов и сериалов на телевизорах, приставках и смартфонах." />
+    if (window.__LAMPA_INIT_LOADED__) return;
+    window.__LAMPA_INIT_LOADED__ = true;
 
-    <meta property="og:title" content="Lampa - Каталог фильмов и сериалов">
-    <meta property="og:description" content="Приложение для просмотра каталога фильмов и сериалов на телевизорах, приставках и смартфонах.">
-    <meta property="og:image:type" content="image/png">
-    <meta property="og:image" content="og.png">
+    var LampaInit = {
+        version: '1.0.0',
 
-    <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
-    <link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
-    <link rel="manifest" href="icons/site.webmanifest" crossorigin="use-credentials">
-    <link rel="mask-icon" href="icons/safari-pinned-tab.svg" color="#5bbad5">
-    <link rel="shortcut icon" href="icons/favicon.ico">
-    <meta name="msapplication-TileColor" content="#1d1f20">
-    <meta name="msapplication-config" content="icons/browserconfig.xml">
-    <meta name="theme-color" content="#1d1f20">
+        init: function () {
+            this.setupGlobals();
+            this.setupMeta();
+            this.setupErrorHandling();
+            this.setupReady();
+        },
 
-    <meta name="referrer" content="never">
-    
-    <link rel="stylesheet" href="./vender/scrollbar/jquery.scrollbar.css">
-    <link rel="stylesheet" href="./vender/keypad/style.css">
+        setupGlobals: function () {
+            window.lampa_url = window.lampa_url || '';
+            window.cache_version = window.cache_version || Math.floor(Date.now() / 9e5);
 
-    <link rel="stylesheet" href="css/app.css?v=4.56">
-</head>
-<body style="background: #1d1f20;">
-    <script>
-        window.youtube_lazy_load = true
-    </script>
+            // Флаги, которые часто нужны Lampa
+            window.youtube_lazy_load = window.youtube_lazy_load !== false;
+            window.local_lampa = window.local_lampa || false;
 
-    <div class="welcome"></div>
+            // Пространство для плагинов
+            window.Lampa = window.Lampa || {};
+            window.Lampa.Plugins = window.Lampa.Plugins || {};
+        },
 
-    <div id="app">
-
-    </div>
-
-    <div class="no-network hide">
-        <div class="no-network__title">Ошибка</div>
-        <div class="no-network__desc">Не удалось загрузить файл: <span class="no-network__file"></span></div>
-    </div>
-    
-    <script src="./webos/webOSTV.js"></script>
-    <script src="./vender/jquery/jquery.js"></script>
-    <script src="./vender/notify/notify.js"></script>
-    <script src="./vender/scrollbar/jquery.scrollbar.js"></script>
-    <script src="./vender/navigator/navigator.js"></script>
-    <script src="./vender/keypad/keypad.js"></script>
-
-    <script>
-        var lampa_url     = '';
-        var cache_version = Math.floor((new Date()).getTime() / 9e5); // Новое значение каждые 15 минут
-            
-        function urlJoin(base, add) {
-            if (base.charAt(base.length - 1) !== '/') {
-                base += '/'
+        setupMeta: function () {
+            // На случай, если app.min.js не успел выставить тему
+            var theme = '#1d1f20';
+            var meta = document.querySelector('meta[name="theme-color"]');
+            if (!meta) {
+                meta = document.createElement('meta');
+                meta.name = 'theme-color';
+                document.head.appendChild(meta);
             }
+            meta.content = theme;
+        },
 
-            return base + add
-        }
+        setupErrorHandling: function () {
+            window.addEventListener('error', function (e) {
+                console.warn('[lampainit] error:', e.message || e);
+            });
 
-        function putScript(scripts, onload, onerror){
-            var add = function(src){
-                console.log('Loader', 'try-load-script', src)
+            window.addEventListener('unhandledrejection', function (e) {
+                console.warn('[lampainit] unhandled rejection:', e.reason);
+            });
+        },
 
-                var trys = 0
+        setupReady: function () {
+            // Если приложение уже готово — ничего не делаем
+            if (window.appready) return;
 
-                var sreateScript = function(){
-                    var script = document.createElement('script')
-
-                    script.type = 'text/javascript'
-
-                    script.onload = script.onreadystatechange = function(e) {
-                        console.log('Loader', 'Script loaded', e)
-
-                        if (!!onload) onload()
-                    };
-
-                    script.onerror = function(){
-                        trys++
-
-                        console.log('Loader', 'error-load-script', src)
-
-                        if(trys < 3){
-                            sreateScript()
-                        } else if (!!onerror) {
-                            onerror()
-                        } else{
-                            $('.no-network').removeClass('hide')
-
-                            $('.no-network__file').text(window.location.href + '/' + src)
-                        }
-                    }
-
-                    script.src = src
-
-                    document.getElementsByTagName('body')[0].appendChild(script)
+            // Небольшая задержка, чтобы app.min.js успел создаться
+            var check = setInterval(function () {
+                if (window.appready || document.querySelector('#app .main')) {
+                    clearInterval(check);
+                    LampaInit.onReady();
                 }
+            }, 200);
 
-                sreateScript()
-            }
+            // Страховка: через 10 секунд просто сообщаем, что init завершён
+            setTimeout(function () {
+                clearInterval(check);
+                LampaInit.onReady();
+            }, 10000);
+        },
 
-            add(scripts)
+        onReady: function () {
+            if (window.__LAMPA_INIT_READY__) return;
+            window.__LAMPA_INIT_READY__ = true;
+
+            document.documentElement.classList.add('lampainit-ready');
+            window.dispatchEvent(new Event('lampainit:ready'));
+            console.log('[lampainit] ready');
         }
+    };
 
-        function loadCurrentLampa() {
-            putScript('app.min.js?v=' + cache_version, function () {})
-        }
+    window.LampaInit = LampaInit;
+    window.lampainit = LampaInit;
 
-        function loadLocalLampa(){
-            if(lampa_url !== '') window.local_lampa = true
-
-            loadCurrentLampa()
-        }
-
-        if (typeof AndroidJS !== "undefined"
-            && !!AndroidJS.getLampaURL
-            && /^https?:\/\//i.test(AndroidJS.getLampaURL())
-            && !/^https?:\/\//i.test(location.href)
-        ) {
-            lampa_url = urlJoin(AndroidJS.getLampaURL(),'')
-        }
-
-        if (lampa_url !== '') {
-            putScript(
-                urlJoin(lampa_url, 'lampainit.js?v=' + cache_version),
-                false,
-                function(){}
-            )
-
-            putScript(
-                urlJoin(lampa_url, 'app.min.js?v=' + cache_version),
-                function () {
-                    var css = urlJoin(lampa_url, 'css/app.css?v=' + cache_version)
-
-                    $('head').append('<link rel="stylesheet" href="' + css + '">')
-                },
-                function () {
-                    putScript(
-                        urlJoin(lampa_url, 'lampa-main/app.min.js?v=' + cache_version),
-                        function () {
-                            var css = urlJoin(lampa_url, 'lampa-main/css/app.css?v=' + cache_version)
-
-                            $('head').append('<link rel="stylesheet" href="' + css + '">')
-
-                            putScript(
-                                urlJoin(lampa_url, 'lampainit.js?v=' + cache_version),
-                                false,
-                                function(){}
-                            )
-                        },
-                        loadLocalLampa
-                    )
-                }
-            )
-        }
-        else{
-            loadCurrentLampa()
-        }
-    </script>
-</body>
-</html>
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () {
+            LampaInit.init();
+        });
+    } else {
+        LampaInit.init();
+    }
+})();
